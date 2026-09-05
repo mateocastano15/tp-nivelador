@@ -5,9 +5,12 @@ import "io"
 //TODO: Complete with a short-read/short-write tolerant implementation
 
 func SendAll(socket io.Writer, bytes []byte) error {
-	_, err := socket.Write(bytes)
+	n, err := socket.Write(bytes)
 	if err != nil {
 		return err
+	}
+	if n != len(bytes){
+		return SendAll(socket, bytes[n:])
 	}
 	return nil
 }
@@ -18,5 +21,12 @@ func RecvAll(socket io.Reader, size int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buff[:n], nil
+	if n != size {
+		rest, err := RecvAll(socket, size-n)
+		if err != nil {
+			return nil, err
+		}
+		return append(buff[:n], rest...), nil
+	}
+	return buff[:size], nil
 }

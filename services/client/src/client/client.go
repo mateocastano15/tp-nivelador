@@ -12,8 +12,6 @@ import (
 const CONNECTION_ATTEMPTS_MAX = 3
 const CONNECTION_ATTEMPS_DELAY_MS = 200
 
-const ECHO_CLIENT_BUFFER_SIZE = 512
-
 const FILE_READER_BUFFER_SIZE = 512
 const FILE_READER_DELIMITER = '\n'
 const FILE_WRITER_DELIMITER = '\n'
@@ -85,7 +83,7 @@ func (client *Client) Run() error {
 			return err
 		}
 
-		responseBuffer, err := safe_socket.RecvAll(client.conn, ECHO_CLIENT_BUFFER_SIZE)
+		responseBuffer, err := safe_socket.RecvAll(client.conn, len(clientMessage))
 		if err != nil {
 			logger.Error("recv-response", logger.Fail, messageArgs...)
 			return err

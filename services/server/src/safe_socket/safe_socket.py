@@ -1,11 +1,16 @@
 import socket
 
-# TODO: Complete with a short-read/short-write tolerant implementation
-
 
 def recv_all(socket: socket.socket, size):
-    return socket.recv(size)
+    data = socket.recv(size)
+    if not data:
+        raise ConnectionError("connection closed before receiving expected data")
+    if len(data) != size:
+        data += recv_all(socket, size - len(data))
+    return data
 
 
 def send_all(socket: socket.socket, bytes):
-    return socket.send(bytes)
+    sent = socket.send(bytes)
+    if sent != len(bytes):
+        send_all(socket, bytes[sent:])
