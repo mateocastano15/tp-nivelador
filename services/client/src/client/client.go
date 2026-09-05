@@ -2,6 +2,7 @@ package client
 
 import (
 	"net"
+	"io"
 	"time"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
@@ -12,13 +13,18 @@ const CONNECTION_ATTEMPTS_MAX = 3
 const CONNECTION_ATTEMPS_DELAY_MS = 200
 
 const ECHO_CLIENT_BUFFER_SIZE = 512
-const ECHO_CLIENT_MESSAGE_AMOUNT = 3
-const ECHO_CLIENT_MESSAGE_DELAY_MS = 1000
+
+const FILE_READER_BUFFER_SIZE = 512
+const FILE_READER_DELIMITER = '\n'
+const FILE_WRITER_DELIMITER = '\n'
+const CARRIAGE_RETURN = '\r'
 
 type ClientConfig struct {
 	ServerHost string
 	ServerPort string
 	AgencyId   string
+	InputFile string
+	OutputFIle string
 }
 
 type Client struct {
@@ -59,14 +65,20 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run() error {
-	const mainAction = "test-echo-server"
 	defer client.conn.Close()
+	fileHandler, err := NewFileHandler(client.config)
+	if err != nil {
+		logger.Error("read-file", logger.Fail, fileHandler)
+		return err
+	}
+	defer fileHandler.inputFile.Close()
+	defer fileHandler.outputFile.Close()
 
-	for messageId := range ECHO_CLIENT_MESSAGE_AMOUNT {
-		messageArgs := []any{"agency-id", client.config.AgencyId, "message-id", messageId}
-		logger.Info(mainAction, logger.InProgress, messageArgs...)
+	for err = fileHandler.readLine(); err == nil || (err == io.EOF && len(fileHandler.line) > 0); err = fileHandler.readLine() {
+		messageArgs := []any{"agency-id", client.config.AgencyId, "message", fileHandler.line}
+		logger.Info("send-bet", logger.InProgress, messageArgs...)
 
-		clientMessage := client.config.AgencyId
+		clientMessage := string(fileHandler.line)
 
 		if err := safe_socket.SendAll(client.conn, []byte(clientMessage)); err != nil {
 			logger.Error("send-message", logger.Fail, messageArgs...)
@@ -79,14 +91,19 @@ func (client *Client) Run() error {
 			return err
 		}
 
-		if string(responseBuffer) != clientMessage {
-			logger.Error("check-response", logger.Fail, messageArgs...)
+		logger.Info("recv-response", logger.InProgress, messageArgs...)
+		if err:= fileHandler.writeResponse(responseBuffer); err!= nil {
+			logger.Error("write-response", logger.Fail, messageArgs...)
 			return err
 		}
-
-		time.Sleep(ECHO_CLIENT_MESSAGE_DELAY_MS * time.Millisecond)
 	}
-	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
+	if err != io.EOF {
+		return err
+	}
+
+	logger.Info("read-file", logger.Success, "agency-id", client.config.AgencyId)
 
 	return nil
 }
+
+
