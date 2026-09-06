@@ -4,6 +4,7 @@ import (
 	"net"
 	"io"
 	"time"
+	"bytes"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
@@ -72,31 +73,24 @@ func (client *Client) Run() error {
 	defer fileHandler.inputFile.Close()
 	defer fileHandler.outputFile.Close()
 
-	for err = fileHandler.readLine(); err == nil || (err == io.EOF && len(fileHandler.line) > 0); err = fileHandler.readLine() {
-		messageArgs := []any{"agency-id", client.config.AgencyId, "message", fileHandler.line}
-		logger.Info("send-bet", logger.InProgress, messageArgs...)
-
-		clientMessage := string(fileHandler.line)
-
-		if err := safe_socket.SendAll(client.conn, []byte(clientMessage)); err != nil {
-			logger.Error("send-message", logger.Fail, messageArgs...)
-			return err
-		}
-
-		responseBuffer, err := safe_socket.RecvAll(client.conn, len(clientMessage))
-		if err != nil {
-			logger.Error("recv-response", logger.Fail, messageArgs...)
-			return err
-		}
-
-		logger.Info("recv-response", logger.InProgress, messageArgs...)
-		if err:= fileHandler.writeResponse(responseBuffer); err!= nil {
-			logger.Error("write-response", logger.Fail, messageArgs...)
-			return err
-		}
-	}
-	if err != io.EOF {
+	if err := client.sendBets(fileHandler); err != nil {
 		return err
+	}
+
+	bets, err := sendEndOfBets(client.conn, client.config.AgencyId)
+	if err != nil {
+		logger.Error("send-end-of-bets", logger.Fail, "agency-id", client.config.AgencyId)
+		return err
+	}
+
+	logger.Info("recv-winners", logger.Success, "agency-id", client.config.AgencyId, "winners", len(bets.bets))
+
+	for _, bet := range bets.bets {
+		betLine := bytes.Join([][]byte{bet.firstName, bet.lastName, bet.document, bet.birthdate, bet.number}, []byte(","))
+		if err := fileHandler.writeResponse(betLine); err != nil {
+			logger.Error("write-response", logger.Fail, "agency-id", client.config.AgencyId)
+			return err
+		}
 	}
 
 	logger.Info("read-file", logger.Success, "agency-id", client.config.AgencyId)
@@ -104,4 +98,78 @@ func (client *Client) Run() error {
 	return nil
 }
 
+func (client *Client) sendBets(fileHandler *FileHandler) error {
+	var err error
+	for err = fileHandler.readLine(); err == nil || (err == io.EOF && len(fileHandler.line) > 0); err = fileHandler.readLine() {
+		messageArgs := []any{"agency-id", client.config.AgencyId, "message", fileHandler.line}
+		logger.Info("send-bet", logger.InProgress, messageArgs...)
 
+		bet := createBet(fileHandler.line, client.config.AgencyId)
+
+		if sendErr := sendBet(client.conn, bet); sendErr != nil {
+			logger.Error("send-bet", logger.Fail, messageArgs...)
+			return sendErr
+		}
+
+		logger.Info("send-bet", logger.Success, messageArgs...)
+	}
+
+	if err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+func receiveMessage(socket io.Reader) (Message, error) {
+	header, err := safe_socket.RecvAll(socket, TYPE_BYTES+SIZE_BYTES)
+	if err != nil {
+		logger.Error("recv-type-and-size", logger.Fail)
+		return nil, err
+	}
+
+	_, size := parseHeader(header)
+
+	value, err := safe_socket.RecvAll(socket, size)
+	if err != nil {
+		logger.Error("recv-value", logger.Fail)
+		return nil, err
+	}
+
+	return parseMessage(header, value)
+}
+
+func sendBet(conn io.ReadWriter, bet *Bet) error {
+	if err := safe_socket.SendAll(conn, bet.byteBet); err != nil {
+		return err
+	}
+
+	msg, err := receiveMessage(conn)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := msg.(Ack); !ok {
+		return ErrResponseMismatch{}
+	}
+
+	return nil
+}
+
+func sendEndOfBets(conn io.ReadWriter, agencyId string) (*Bets, error) {
+	if err := safe_socket.SendAll(conn, encodeField(ENDOFBETS_BYTES, []byte(agencyId))); err != nil {
+		return nil, err
+	}
+
+	msg, err := receiveMessage(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	bets, ok := msg.(*Bets)
+	if !ok {
+		return nil, ErrResponseMismatch{}
+	}
+
+	return bets, nil
+}
