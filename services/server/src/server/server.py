@@ -1,4 +1,5 @@
 import socket
+import threading
 import logger
 import safe_socket
 import protocol
@@ -25,10 +26,14 @@ def send_batch(client_socket, bets):
 
 
 class Server:
-    def __init__(self, server_host: str, server_port: int) -> None:
+    def __init__(self, server_host: str, server_port: int, agency_quorum_min: int) -> None:
         self.server_host = server_host
         self.server_port = server_port
+        self.agency_quorum_min = agency_quorum_min
         self.lottery = Lottery(storage_path=_LOTTERY_STORAGE_PATH)
+        self.finished_agencies = 0
+        self.lock = threading.Lock()
+        self.quorum_reached = threading.Event()
 
     def _handle_client(self, client_socket):
         action = "handle-client"
@@ -47,17 +52,29 @@ class Server:
                     bets.append(msg)
                 send_ack(client_socket)
 
-            self.lottery.store_bets(bets)
+            with self.lock:
+                logger.info("lock", logger.LogResult.success, "agency-id", msg.agency_id)
+                self.lottery.store_bets(bets)
+                self.finished_agencies += 1
+                if self.finished_agencies >= self.agency_quorum_min:
+                    self.quorum_reached.set()
+            logger.info("unlock", logger.LogResult.success, "agency-id", msg.agency_id)
 
-            winners = [
-                bet for bet in self.lottery.load_bets()
-                if bet.agency_id == msg.agency_id and self.lottery.has_won(bet)
-            ]
+            self.quorum_reached.wait()
+
+            with self.lock:
+                logger.info("lock", logger.LogResult.success, "agency-id", msg.agency_id)
+                winners = []
+                for bet in self.lottery.load_bets():
+                    if bet.agency_id == msg.agency_id and self.lottery.has_won(bet):
+                        winners.append(bet)
+            logger.info("unlock", logger.LogResult.success, "agency-id", msg.agency_id)
 
             send_batch(client_socket, winners)
 
             logger.info(
-                action, logger.LogResult.success, "bets", len(bets), "winners", len(winners)
+                action, logger.LogResult.success,
+                "agency-id", msg.agency_id, "bets", len(bets), "winners", len(winners)
             )
         except Exception as e:
             logger.error(action, logger.LogResult.fail, "bets", len(bets))
@@ -77,4 +94,4 @@ class Server:
                     raise e
                 logger.info(action, logger.LogResult.success)
 
-                self._handle_client(client_socket)
+                threading.Thread(target=self._handle_client, args=(client_socket,)).start()
