@@ -24,6 +24,7 @@ type ClientConfig struct {
 	AgencyId   string
 	InputFile string
 	OutputFIle string
+	BatchSize int
 }
 
 type Client struct {
@@ -99,23 +100,36 @@ func (client *Client) Run() error {
 }
 
 func (client *Client) sendBets(fileHandler *FileHandler) error {
+	var batch []*Bet
 	var err error
+
 	for err = fileHandler.readLine(); err == nil || (err == io.EOF && len(fileHandler.line) > 0); err = fileHandler.readLine() {
 		messageArgs := []any{"agency-id", client.config.AgencyId, "message", fileHandler.line}
 		logger.Info("send-bet", logger.InProgress, messageArgs...)
 
 		bet := createBet(fileHandler.line, client.config.AgencyId)
+		batch = append(batch, bet)
 
-		if sendErr := sendBet(client.conn, bet); sendErr != nil {
-			logger.Error("send-bet", logger.Fail, messageArgs...)
-			return sendErr
+		if len(batch) == client.config.BatchSize {
+			if sendErr := sendBatch(client.conn, batch); sendErr != nil {
+				logger.Error("send-batch", logger.Fail, messageArgs...)
+				return sendErr
+			}
+			logger.Info("send-batch", logger.Success, messageArgs...)
+			batch = nil
 		}
-
-		logger.Info("send-bet", logger.Success, messageArgs...)
 	}
 
 	if err != io.EOF {
 		return err
+	}
+
+	if len(batch) > 0 {
+		if sendErr := sendBatch(client.conn, batch); sendErr != nil {
+			logger.Error("send-batch", logger.Fail, "agency-id", client.config.AgencyId)
+			return sendErr
+		}
+		logger.Info("send-batch", logger.Success, "agency-id", client.config.AgencyId)
 	}
 
 	return nil
@@ -139,8 +153,8 @@ func receiveMessage(socket io.Reader) (Message, error) {
 	return parseMessage(header, value)
 }
 
-func sendBet(conn io.ReadWriter, bet *Bet) error {
-	if err := safe_socket.SendAll(conn, bet.byteBet); err != nil {
+func sendBatch(conn io.ReadWriter, batch []*Bet) error {
+	if err := safe_socket.SendAll(conn, encodeBatch(batch)); err != nil {
 		return err
 	}
 
@@ -156,7 +170,7 @@ func sendBet(conn io.ReadWriter, bet *Bet) error {
 	return nil
 }
 
-func sendEndOfBets(conn io.ReadWriter, agencyId string) (*Bets, error) {
+func sendEndOfBets(conn io.ReadWriter, agencyId string) (*Batch, error) {
 	if err := safe_socket.SendAll(conn, encodeField(ENDOFBETS_BYTES, []byte(agencyId))); err != nil {
 		return nil, err
 	}
@@ -166,7 +180,7 @@ func sendEndOfBets(conn io.ReadWriter, agencyId string) (*Bets, error) {
 		return nil, err
 	}
 
-	bets, ok := msg.(*Bets)
+	bets, ok := msg.(*Batch)
 	if !ok {
 		return nil, ErrResponseMismatch{}
 	}

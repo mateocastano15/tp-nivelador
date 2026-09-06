@@ -8,7 +8,7 @@ SIZE_BYTES = 2
 BET_BYTES = 1
 ENDOFBETS_BYTES = 2
 ACK_BYTES = 3
-BETS_BYTES = 4
+BATCH_BYTES = 4
 
 AGENCYID_BYTES = 1
 FIRSTNAME_BYTES = 2
@@ -72,11 +72,22 @@ def decode_bet(value):
     )
 
 
+def decode_batch(value):
+    bets = []
+    while len(value) > 0:
+        _, msg, rest = split_msg(value)
+        bets.append(decode_bet(msg[TYPE_BYTES + SIZE_BYTES :]))
+        value = rest
+    return bets
+
+
 def parse_message(msg_type, value):
     if msg_type == BET_BYTES:
         return decode_bet(value)
     elif msg_type == ENDOFBETS_BYTES:
         return EndOfBets(agency_id=int(value.decode()))
+    elif msg_type == BATCH_BYTES:
+        return decode_batch(value)
 
 
 def encode_field(field_type, value):
@@ -94,6 +105,6 @@ def encode_bet(bet):
     return encode_field(BET_BYTES, value)
 
 
-def encode_bets(bets):
+def encode_batch(bets):
     value = b"".join(encode_bet(bet) for bet in bets)
-    return encode_field(BETS_BYTES, value)
+    return encode_field(BATCH_BYTES, value)

@@ -20,8 +20,8 @@ def send_ack(client_socket):
     safe_socket.send_all(client_socket, protocol.encode_field(protocol.ACK_BYTES, b""))
 
 
-def send_bets(client_socket, bets):
-    safe_socket.send_all(client_socket, protocol.encode_bets(bets))
+def send_batch(client_socket, bets):
+    safe_socket.send_all(client_socket, protocol.encode_batch(bets))
 
 
 class Server:
@@ -41,7 +41,10 @@ class Server:
                 if isinstance(msg, protocol.EndOfBets):
                     break
 
-                bets.append(msg)
+                if isinstance(msg, list):
+                    bets.extend(msg)
+                else:
+                    bets.append(msg)
                 send_ack(client_socket)
 
             self.lottery.store_bets(bets)
@@ -51,7 +54,7 @@ class Server:
                 if bet.agency_id == msg.agency_id and self.lottery.has_won(bet)
             ]
 
-            send_bets(client_socket, winners)
+            send_batch(client_socket, winners)
 
             logger.info(
                 action, logger.LogResult.success, "bets", len(bets), "winners", len(winners)

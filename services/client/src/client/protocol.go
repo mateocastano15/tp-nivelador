@@ -14,7 +14,7 @@ const LASTNAME_BYTES = 3
 const DOCUMENT_BYTES = 4
 const BIRTHDATE_BYTES = 5
 const NUMBER_BYTES = 6
-const BETS_BYTES = 4
+const BATCH_BYTES = 4
 const TYPE_BYTES = 2
 const SIZE_BYTES = 2
 
@@ -48,12 +48,12 @@ func (ack Ack) Type() int {
 	return ACK_BYTES
 }
 
-type Bets struct {
+type Batch struct {
 	bets []*Bet
 }
 
-func (Bets) Type() int {
-	return BETS_BYTES
+func (Batch) Type() int {
+	return BATCH_BYTES
 }
 
 func encodeField(fieldType int, value []byte) []byte {
@@ -121,20 +121,28 @@ func decodeBet(msg []byte) *Bet {
 	return bet
 }
 
-func decodeBets(value []byte) *Bets {
+func decodeBatch(value []byte) *Batch {
 	var bets []*Bet
 	for len(value) > 0 {
 		_, msg, rest := splitMsg(value)
 		bets = append(bets, decodeBet(msg))
 		value = rest
 	}
-	return &Bets{bets: bets}
+	return &Batch{bets: bets}
 }
 
 func parseHeader(header []byte) (msgType []byte, size int) {
 	msgType = header[:TYPE_BYTES]
 	size = int(binary.BigEndian.Uint16(header[TYPE_BYTES:]))
 	return msgType, size
+}
+
+func encodeBatch(bets []*Bet) []byte {
+	var value []byte
+	for _, bet := range bets {
+		value = append(value, bet.byteBet...)
+	}
+	return encodeField(BATCH_BYTES, value)
 }
 
 func parseMessage(header []byte, value []byte) (Message, error) {
@@ -144,8 +152,8 @@ func parseMessage(header []byte, value []byte) (Message, error) {
 		return &Bet{byteBet: append(header, value...)}, nil
 	} else if msgType[0] == 0 && msgType[1] == ACK_BYTES {
 		return Ack{}, nil
-	} else if msgType[0] == 0 && msgType[1] == BETS_BYTES {
-		return decodeBets(value), nil
+	} else if msgType[0] == 0 && msgType[1] == BATCH_BYTES {
+		return decodeBatch(value), nil
 	}
 
 	return nil, nil
