@@ -5,12 +5,15 @@ import (
 	"io"
 	"time"
 	"bytes"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
-const CONNECTION_ATTEMPTS_MAX = 3
+const CONNECTION_ATTEMPTS_MAX = 5
 const CONNECTION_ATTEMPS_DELAY_MS = 200
 
 const FILE_READER_BUFFER_SIZE = 512
@@ -30,6 +33,12 @@ type ClientConfig struct {
 type Client struct {
 	conn   net.Conn
 	config ClientConfig
+}
+
+type ErrShuttingDown struct{}
+
+func (ErrShuttingDown) Error() string {
+	return "shutting down"
 }
 
 func NewClient(config ClientConfig) (*Client, error) {
@@ -65,6 +74,17 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run() error {
+	done := make(chan struct{})
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		logger.Info("sigterm", logger.InProgress)
+		close(done)
+		client.conn.Close()
+	}()
+
 	defer client.conn.Close()
 	fileHandler, err := NewFileHandler(client.config)
 	if err != nil {
@@ -74,14 +94,14 @@ func (client *Client) Run() error {
 	defer fileHandler.inputFile.Close()
 	defer fileHandler.outputFile.Close()
 
-	if err := client.sendBets(fileHandler); err != nil {
-		return err
+	if err := client.sendBets(fileHandler, done); err != nil {
+		return shuttingDownOr(done, err)
 	}
 
 	bets, err := sendEndOfBets(client.conn, client.config.AgencyId)
 	if err != nil {
 		logger.Error("send-end-of-bets", logger.Fail, "agency-id", client.config.AgencyId)
-		return err
+		return shuttingDownOr(done, err)
 	}
 
 	logger.Info("recv-winners", logger.Success, "agency-id", client.config.AgencyId, "winners", len(bets.bets))
@@ -99,11 +119,24 @@ func (client *Client) Run() error {
 	return nil
 }
 
-func (client *Client) sendBets(fileHandler *FileHandler) error {
+func shuttingDownOr(done <-chan struct{}, err error) error {
+	select {
+	case <-done:
+		return ErrShuttingDown{}
+	default:
+		return err
+	}
+}
+
+func (client *Client) sendBets(fileHandler *FileHandler, done <-chan struct{}) error {
 	var batch []*Bet
 	var err error
 
 	for err = fileHandler.readLine(); err == nil || (err == io.EOF && len(fileHandler.line) > 0); err = fileHandler.readLine() {
+		if shutdownErr := shuttingDownOr(done, nil); shutdownErr != nil {
+			return shutdownErr
+		}
+
 		messageArgs := []any{"agency-id", client.config.AgencyId, "message", fileHandler.line}
 		logger.Info("send-bet", logger.InProgress, messageArgs...)
 

@@ -1,5 +1,6 @@
 import socket
 import threading
+import signal
 import logger
 import safe_socket
 import protocol
@@ -34,6 +35,7 @@ class Server:
         self.finished_agencies = 0
         self.lock = threading.Lock()
         self.quorum_reached = threading.Event()
+        self.shutdown_event = threading.Event()
 
     def _handle_client(self, client_socket):
         action = "handle-client"
@@ -62,6 +64,10 @@ class Server:
 
             self.quorum_reached.wait()
 
+            if self.shutdown_event.is_set():
+                logger.info(action, logger.LogResult.fail, "agency-id", msg.agency_id, "reason", "shutdown")
+                return
+
             with self.lock:
                 logger.info("lock", logger.LogResult.success, "agency-id", msg.agency_id)
                 winners = []
@@ -80,18 +86,30 @@ class Server:
             logger.error(action, logger.LogResult.fail, "bets", len(bets))
             raise e
 
-    def run(self):
+    def _accept_connections(self, server_socket):
         action = "accept-connection"
+        while True:
+            try:
+                logger.info(action, logger.LogResult.in_progress)
+                client_socket, _ = server_socket.accept()
+            except OSError:
+                return
+            logger.info(action, logger.LogResult.success)
+
+            threading.Thread(target=self._handle_client, args=(client_socket,), daemon=True).start()
+
+    def run(self):
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind((self.server_host, self.server_port))
             server_socket.listen()
-            while True:
-                try:
-                    logger.info(action, logger.LogResult.in_progress)
-                    client_socket, _ = server_socket.accept()
-                except Exception as e:
-                    logger.error(action, logger.LogResult.fail)
-                    raise e
-                logger.info(action, logger.LogResult.success)
 
-                threading.Thread(target=self._handle_client, args=(client_socket,)).start()
+            threading.Thread(
+                target=self._accept_connections, args=(server_socket,), daemon=True
+            ).start()
+
+            signal.sigwait({signal.SIGTERM})
+            logger.info("sigterm", logger.LogResult.in_progress)
+            self.shutdown_event.set()
+            self.quorum_reached.set()

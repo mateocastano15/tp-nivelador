@@ -62,13 +62,18 @@ func run() int {
 		return 1
 	}
 
-	client, err := client.NewClient(config)
+	c, err := client.NewClient(config)
 	if err != nil {
 		logger.Error("client-new", logger.Fail, "err", err)
 		return 1
 	}
 
-	if err := client.Run(); err != nil {
+	if err := c.Run(); err != nil {
+		var shuttingDown client.ErrShuttingDown
+		if errors.As(err, &shuttingDown) {
+			logger.Info("client-run", logger.Success, "reason", "sigterm")
+			return 0
+		}
 		logger.Error("client-run", logger.Fail, "err", err)
 		return 1
 	}
