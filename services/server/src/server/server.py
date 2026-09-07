@@ -98,7 +98,7 @@ class Server:
                 return
             logger.info(action, logger.LogResult.success)
 
-            handler_thread = threading.Thread(target=self._handle_client, args=(client_socket,), daemon=True)
+            handler_thread = threading.Thread(target=self._handle_client, args=(client_socket,))
             with self.lock:
                 self.client_handlers.append((handler_thread, client_socket))
             handler_thread.start()
@@ -110,14 +110,16 @@ class Server:
             server_socket.bind((self.server_host, self.server_port))
             server_socket.listen()
 
-            threading.Thread(
-                target=self._accept_connections, args=(server_socket,), daemon=True
-            ).start()
+            accept_thread = threading.Thread(target=self._accept_connections, args=(server_socket,))
+            accept_thread.start()
 
             signal.sigwait({signal.SIGTERM})
             logger.info("sigterm", logger.LogResult.in_progress)
             self.shutdown_event.set()
             self.quorum_reached.set()
+
+            server_socket.shutdown(socket.SHUT_RDWR)
+            accept_thread.join()
 
         with self.lock:
             client_handlers = list(self.client_handlers)
