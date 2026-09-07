@@ -9,7 +9,7 @@ func SendAll(socket io.Writer, bytes []byte) error {
 	if err != nil {
 		return err
 	}
-	if n != len(bytes){
+	if n != len(bytes) {
 		return SendAll(socket, bytes[n:])
 	}
 	return nil

@@ -1,13 +1,13 @@
 package client
 
 import (
-	"net"
-	"io"
-	"time"
 	"bytes"
+	"io"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
@@ -25,9 +25,9 @@ type ClientConfig struct {
 	ServerHost string
 	ServerPort string
 	AgencyId   string
-	InputFile string
+	InputFile  string
 	OutputFIle string
-	BatchSize int
+	BatchSize  int
 }
 
 type Client struct {

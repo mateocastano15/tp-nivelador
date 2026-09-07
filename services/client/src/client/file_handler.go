@@ -1,25 +1,25 @@
 package client
 
 import (
-	"os"
-	"io"
 	"bytes"
+	"io"
+	"os"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 )
 
-type FileHandler struct{
-	nextLine []byte
-	line []byte
-	inputFile *os.File
+type FileHandler struct {
+	nextLine   []byte
+	line       []byte
+	inputFile  *os.File
 	outputFile *os.File
 }
 
-func (fileHandler *FileHandler) writeResponse(data []byte) (error){
+func (fileHandler *FileHandler) writeResponse(data []byte) error {
 	data = append(data, FILE_WRITER_DELIMITER)
 	_, err := fileHandler.outputFile.Write(data)
 
-	if err!= nil{
+	if err != nil {
 		logger.Error("writing-file", logger.Fail, data)
 		return err
 	}
@@ -27,7 +27,7 @@ func (fileHandler *FileHandler) writeResponse(data []byte) (error){
 	return nil
 }
 
-func (fileHandler *FileHandler) readLine() (error){
+func (fileHandler *FileHandler) readLine() error {
 	buf := make([]byte, FILE_READER_BUFFER_SIZE)
 	fileHandler.line = fileHandler.nextLine
 	for bytes.IndexByte(fileHandler.line, FILE_READER_DELIMITER) == -1 {
@@ -73,6 +73,6 @@ func NewFileHandler(config ClientConfig) (*FileHandler, error) {
 	var nextLine []byte
 	var line []byte
 
-	fileHandler := &FileHandler{inputFile: inputFile, nextLine: nextLine, line:line, outputFile: outputFile}
+	fileHandler := &FileHandler{inputFile: inputFile, nextLine: nextLine, line: line, outputFile: outputFile}
 	return fileHandler, nil
 }

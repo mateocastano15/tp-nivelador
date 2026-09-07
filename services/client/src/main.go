@@ -50,8 +50,8 @@ func loadConfig() (client.ClientConfig, error) {
 		ServerPort: serverPort,
 		AgencyId:   agencyId,
 		OutputFIle: outputFile,
-		InputFile: inputFile,
-		BatchSize: batchSizeInt,
+		InputFile:  inputFile,
+		BatchSize:  batchSizeInt,
 	}, nil
 }
 
